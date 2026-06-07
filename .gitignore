@@ -1,0 +1,46 @@
+# Python backend
+backend/venv/
+backend/__pycache__/
+backend/**/*.pyc
+backend/*.log
+backend/memory.txt
+backend/chat_history.json
+backend/user_profile.json
+backend/notes/
+
+# Root Python launcher old build files
+build/
+dist/
+Assistant.spec
+launcher.py
+assistant_launcher_log.txt
+backend_stdout.log
+backend_stderr.log
+
+# Frontend / Electron
+frontend/node_modules/
+frontend/dist/
+frontend/release/
+frontend/.vite/
+
+# Tauri / Rust old files
+frontend/src-tauri/target/
+target/
+
+# Logs
+*.log
+
+# Secrets / env
+.env
+.env.local
+*.env
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Ollama models
+.ollama/
+models/
