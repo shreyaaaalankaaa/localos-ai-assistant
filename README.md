@@ -143,6 +143,6 @@ Cybersecurity Undergraduate
 
 Interested in AI, Software Engineering, Cybersecurity, and Full-Stack Development.
 
-LinkedIn: <link>
+LinkedIn: <www.linkedin.com/in/shreya-lanka-057a0b28a>
 
-GitHub: <link>
+GitHub: <https://github.com/shreyaaaalankaaa>
