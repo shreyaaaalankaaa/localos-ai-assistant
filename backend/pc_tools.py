@@ -1,12 +1,15 @@
 import os
+import sys
+import shutil
+from pathlib import Path
 import socket
 import subprocess
 import webbrowser
 import psutil
 
 
-BASE_USER = r"C:\Users\H"
-PROJECT_ROOT = r"C:\Users\H\Desktop\jarvis-local"
+BASE_USER = str(Path.home())
+PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 
 
 SAFE_APPS = {
@@ -70,11 +73,40 @@ def open_app(app_name: str):
         }
 
     try:
-        subprocess.Popen(command, shell=True)
-        return {
-            "status": "success",
-            "message": f"Opened {app_name}.",
-        }
+        executable = shutil.which(command)
+        arguments = []
+        if not executable and sys.platform == "win32":
+            program_files = [os.environ.get("PROGRAMFILES", ""),
+                             os.environ.get("PROGRAMFILES(X86)", ""),
+                             os.environ.get("LOCALAPPDATA", "")]
+            relative = {
+                "chrome": "Google/Chrome/Application/chrome.exe",
+                "edge": "Microsoft/Edge/Application/msedge.exe",
+                "vscode": "Programs/Microsoft VS Code/Code.exe",
+                "vs code": "Programs/Microsoft VS Code/Code.exe",
+            }.get(app_name)
+            if relative:
+                executable = next((str(Path(base) / relative) for base in program_files
+                                   if base and (Path(base) / relative).is_file()), None)
+        if not executable and sys.platform == "darwin":
+            mac_apps = {"notepad":"TextEdit", "calculator":"Calculator", "calc":"Calculator",
+                        "vscode":"Visual Studio Code", "vs code":"Visual Studio Code",
+                        "chrome":"Google Chrome", "edge":"Microsoft Edge"}
+            if app_name in mac_apps:
+                executable = "open"
+                arguments = ["-a", mac_apps[app_name]]
+        if not executable and sys.platform.startswith("linux"):
+            linux_apps = {"notepad":["gedit","mousepad","kate"],
+                          "calculator":["gnome-calculator","kcalc"],
+                          "calc":["gnome-calculator","kcalc"],
+                          "chrome":["google-chrome","chromium","chromium-browser"],
+                          "edge":["microsoft-edge"]}
+            executable = next((shutil.which(name) for name in linux_apps.get(app_name, [])
+                              if shutil.which(name)), None)
+        if not executable:
+            return {"status": "error", "message": f"{app_name} is not installed or not on PATH on this computer."}
+        subprocess.Popen([executable, *arguments], shell=False)
+        return {"status": "success", "message": f"Opened {app_name}."}
     except Exception as error:
         return {
             "status": "error",
@@ -92,7 +124,12 @@ def open_folder(path: str):
         }
 
     try:
-        os.startfile(path)
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
         return {
             "status": "success",
             "message": f"Opened folder: {path}",
@@ -119,7 +156,7 @@ def open_known_folder(folder_name: str):
 
 def system_status():
     try:
-        disk = psutil.disk_usage("C:\\")
+        disk = psutil.disk_usage(Path.home().anchor or "/")
         memory = psutil.virtual_memory()
         cpu_percent = psutil.cpu_percent(interval=1)
 
@@ -223,7 +260,10 @@ def running_apps(limit: int = 12):
 
 def open_project_in_vscode():
     try:
-        subprocess.Popen(f'code "{PROJECT_ROOT}"', shell=True)
+        executable = shutil.which('code')
+        if not executable:
+            return {"status": "error", "message": "VS Code is not on PATH."}
+        subprocess.Popen([executable, PROJECT_ROOT])
 
         return {
             "status": "success",
@@ -250,7 +290,7 @@ def start_frontend():
             "npm run dev",
             cwd=frontend_path,
             shell=True,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
 
         return {

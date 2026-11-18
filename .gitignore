@@ -44,3 +44,5 @@ Thumbs.db
 # Ollama models
 .ollama/
 models/
+# JARVIS v2 local conversations, profile and notes
+backend/data/

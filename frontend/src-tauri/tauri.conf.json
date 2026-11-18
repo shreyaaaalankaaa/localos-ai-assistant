@@ -1,22 +1,24 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "local-assistant",
+  "productName": "JARVIS Local OS",
   "version": "0.1.0",
   "identifier": "com.tauri.dev",
   "build": {
-    "frontendDist": "../build../dist",
-    "devUrl": "http://localhost:5175",
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
       {
-        "title": "Assistant",
-        "width": 800,
-        "height": 600,
+        "title": "JARVIS // LOCAL OS",
+        "width": 1600,
+        "height": 900,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "minWidth": 800,
+        "minHeight": 580
       }
     ],
     "security": {

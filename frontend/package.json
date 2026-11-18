@@ -1,39 +1,54 @@
 {
-  "name": "assistant",
+  "name": "jarvis-local-os",
   "version": "1.0.0",
-  "description": "Local AI Assistant",
+  "description": "JARVIS monochrome local AI assistant desktop",
   "main": "electron/main.cjs",
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc -b && vite build",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "dist:win": "npm run build && electron-builder --win nsis"
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "typecheck": "tsc -b",
+    "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "@react-three/drei": "latest",
-    "@react-three/fiber": "latest",
-    "axios": "latest",
-    "framer-motion": "latest",
-    "lucide-react": "latest",
-    "three": "latest",
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@tauri-apps/api": "^2.11.0",
+    "axios": "^1.16.1",
+    "framer-motion": "^12.40.0",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "three": "^0.184.0"
   },
   "devDependencies": {
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "@vitejs/plugin-react": "latest",
-    "concurrently": "latest",
-    "electron": "latest",
-    "electron-builder": "latest",
-    "typescript": "latest",
-    "wait-on": "latest"
+    "@babel/core": "^7.29.0",
+    "@eslint/js": "^10.0.1",
+    "@rolldown/plugin-babel": "^0.2.3",
+    "@tauri-apps/cli": "^2.11.2",
+    "@types/babel__core": "^7.20.5",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "concurrently": "^10.0.3",
+    "electron": "^42.3.3",
+    "electron-builder": "^26.15.0",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12",
+    "wait-on": "^9.0.10"
   },
   "build": {
     "appId": "com.local.assistant",
-    "productName": "Assistant",
+    "productName": "JARVIS Local OS",
     "directories": {
       "output": "release"
     },
@@ -50,7 +65,20 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Assistant"
-    }
+      "shortcutName": "JARVIS Local OS"
+    },
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!data/**",
+          "!__pycache__/**",
+          "!*.pyc",
+          "!venv/**"
+        ]
+      }
+    ]
   }
 }

@@ -1,0 +1,9 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+requests>=2.31,<3
+psutil>=5.9,<8
+pydantic>=2,<3
+pyttsx3>=2.90,<3
+# Optional higher-quality voice (needs internet for Edge TTS and audio hardware):
+# edge-tts>=7
+# pygame>=2.6

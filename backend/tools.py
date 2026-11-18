@@ -42,8 +42,11 @@ except Exception:
     show_pending_actions = None
 
 
-NOTES_DIR = "notes"
-MEMORY_FILE = "memory.txt"
+from pathlib import Path
+DATA_DIR = Path(os.getenv("LOCALOS_DATA_DIR", str(Path(__file__).resolve().parent / "data")))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+NOTES_DIR = str(DATA_DIR / "notes")
+MEMORY_FILE = str(DATA_DIR / "memory.txt")
 
 
 def ensure_notes_dir():

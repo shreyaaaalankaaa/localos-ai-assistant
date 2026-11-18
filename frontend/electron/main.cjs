@@ -1,165 +1,97 @@
-const { app, BrowserWindow, shell, session } = require("electron");
-const path = require("path");
-const { spawn } = require("child_process");
-const net = require("net");
+const { app, BrowserWindow, shell, session } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
+const net = require('net');
 
 let mainWindow = null;
 let backendProcess = null;
 
-const PROJECT_ROOT = "D:\\jarvis-local";
-const BACKEND_DIR = path.join(PROJECT_ROOT, "backend");
-const BACKEND_PYTHON = path.join(BACKEND_DIR, "venv", "Scripts", "python.exe");
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+const BACKEND_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'backend')
+  : path.join(PROJECT_ROOT, 'backend');
 
+function pythonExecutable() {
+  const candidates = process.platform === 'win32'
+    ? [path.join(BACKEND_DIR, 'venv', 'Scripts', 'python.exe'), path.join(PROJECT_ROOT, '.venv', 'Scripts', 'python.exe')]
+    : [path.join(BACKEND_DIR, 'venv', 'bin', 'python'), path.join(PROJECT_ROOT, '.venv', 'bin', 'python')];
+  const found = candidates.find(p => fs.existsSync(p));
+  if (found) return { executable: found, extra: [] };
+  return process.platform === 'win32'
+    ? { executable: 'py', extra: ['-3'] }
+    : { executable: 'python3', extra: [] };
+}
 function isPortOpen(port) {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const socket = new net.Socket();
-
+    const finish = (open) => { socket.destroy(); resolve(open); };
     socket.setTimeout(500);
-
-    socket.on("connect", () => {
-      socket.destroy();
-      resolve(true);
-    });
-
-    socket.on("timeout", () => {
-      socket.destroy();
-      resolve(false);
-    });
-
-    socket.on("error", () => {
-      resolve(false);
-    });
-
-    socket.connect(port, "127.0.0.1");
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+    socket.connect(port, '127.0.0.1');
   });
 }
-
-async function waitForPort(port, timeoutMs = 20000) {
-  const start = Date.now();
-
-  while (Date.now() - start < timeoutMs) {
-    const open = await isPortOpen(port);
-
-    if (open) {
-      return true;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  }
-
-  return false;
-}
-
 async function startBackend() {
-  const alreadyRunning = await isPortOpen(8000);
-
-  if (alreadyRunning) {
-    console.log("Backend already running.");
+  if (await isPortOpen(8000)) return;
+  if (!fs.existsSync(path.join(BACKEND_DIR, 'main.py'))) {
+    console.error('Backend files not found:', BACKEND_DIR);
     return;
   }
-
-  backendProcess = spawn(
-    BACKEND_PYTHON,
-    ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"],
-    {
-      cwd: BACKEND_DIR,
-      shell: false,
-      windowsHide: true,
-      env: {
-        ...process.env,
-        OPENBLAS_NUM_THREADS: "1",
-        OMP_NUM_THREADS: "1",
-        PYTHONUNBUFFERED: "1",
-        OLLAMA_MODELS: "D:\\ollama\\models"
-      }
-    }
-  );
-
-  backendProcess.stdout.on("data", (data) => {
-    console.log(`backend: ${data}`);
+  const py = pythonExecutable();
+  backendProcess = spawn(py.executable, [...py.extra, '-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], {
+    cwd: BACKEND_DIR,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      LOCALOS_DATA_DIR: path.join(app.getPath('userData'), 'data'),
+      PYTHONUNBUFFERED: '1',
+      OPENBLAS_NUM_THREADS: '1',
+    },
   });
-
-  backendProcess.stderr.on("data", (data) => {
-    console.error(`backend error: ${data}`);
-  });
-
-  backendProcess.on("error", (error) => {
-    console.error("Backend spawn error:", error);
-  });
-
-  backendProcess.on("close", (code) => {
-    console.log(`backend closed with code ${code}`);
-  });
-
-  const ready = await waitForPort(8000, 20000);
-
-  if (ready) {
-    console.log("Backend ready.");
-  } else {
-    console.log("Backend did not become ready fast enough.");
-  }
+  backendProcess.stdout.on('data', data => console.log(`backend: ${data}`));
+  backendProcess.stderr.on('data', data => console.error(`backend: ${data}`));
+  backendProcess.on('error', err => console.error('Failed to start backend. Check Python dependencies.', err));
+  backendProcess.on('close', code => { console.log('Backend exited:', code); backendProcess = null; });
 }
-
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 1100,
-    minHeight: 720,
-    backgroundColor: "#000000",
-    title: "Assistant",
+    width: 1600,
+    height: 900,
+    minWidth: 800,
+    minHeight: 580,
+    backgroundColor: '#010101',
+    title: 'JARVIS // LOCAL OS V2.0',
     autoHideMenuBar: true,
     show: false,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      webSecurity: true
-    }
+    webPreferences: { contextIsolation: true, nodeIntegration: false, webSecurity: true },
   });
-
   mainWindow.maximize();
-
-  const devUrl = "http://localhost:5173";
-  const prodPath = path.join(__dirname, "..", "dist", "index.html");
-
-  if (!app.isPackaged) {
-    mainWindow.loadURL(devUrl);
+  if (app.isPackaged) {
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   } else {
-    mainWindow.loadFile(prodPath);
+    mainWindow.loadURL('http://127.0.0.1:5173');
   }
-
-  mainWindow.once("ready-to-show", () => {
-    mainWindow.show();
-    mainWindow.focus();
-  });
-
+  mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: "deny" };
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
   });
 }
-
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Do not auto-grant camera/location/notifications to arbitrary content.
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    callback(true);
+    const source = webContents.getURL();
+    const localFrontend = source.startsWith('file://') || /^http:\/\/127\.0\.0\.1:5173/.test(source);
+    callback(permission === 'media' && localFrontend);
   });
-
+  await startBackend();
   createWindow();
-
-  setTimeout(() => {
-    startBackend().catch((error) => {
-      console.error("Backend startup failed:", error);
-    });
-  }, 800);
 });
-
-app.on("window-all-closed", () => {
-  if (backendProcess) {
-    backendProcess.kill();
-    backendProcess = null;
-  }
-
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+app.on('window-all-closed', () => {
+  if (backendProcess) backendProcess.kill();
+  if (process.platform !== 'darwin') app.quit();
 });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

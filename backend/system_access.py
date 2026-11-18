@@ -16,12 +16,13 @@ from confirmation_store import (
 )
 
 
-AUDIT_LOG = "audit_log.txt"
+AUDIT_LOG = str(Path(__file__).resolve().parent / "data" / "audit_log.txt")
 
 
 def audit(message: str):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    Path(AUDIT_LOG).parent.mkdir(parents=True, exist_ok=True)
     with open(AUDIT_LOG, "a", encoding="utf-8") as file:
         file.write(f"[{timestamp}] {message}\n")
 
@@ -350,7 +351,7 @@ def execute_command(command: str, cwd: str):
                 command,
                 cwd=cwd,
                 shell=True,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
             )
 
             audit(f"Started command in new console: {command} | cwd={cwd}")

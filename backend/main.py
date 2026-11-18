@@ -1,12 +1,18 @@
 import json
 import os
 import time
+import subprocess
+import re
+import platform
+from pathlib import Path
+
+import psutil
 import requests
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from voice import speak_text_async, stop_speech
 from tools import run_tool
@@ -17,17 +23,20 @@ app = FastAPI(title="Local Assistant Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:4173", "http://localhost:4173", "null", "tauri://localhost", "http://tauri.localhost"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+OLLAMA_CHAT_URL = OLLAMA_BASE_URL + "/api/chat"
 
-MEMORY_FILE = "memory.txt"
-PROFILE_FILE = "user_profile.json"
-HISTORY_FILE = "chat_history.json"
+DATA_DIR = Path(os.getenv("LOCALOS_DATA_DIR", str(Path(__file__).resolve().parent / "data")))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+MEMORY_FILE = str(DATA_DIR / "memory.txt")
+PROFILE_FILE = str(DATA_DIR / "user_profile.json")
+HISTORY_FILE = str(DATA_DIR / "chat_history.json")
 
 MAX_HISTORY_MESSAGES = 14
 
@@ -36,6 +45,7 @@ class ChatRequest(BaseModel):
     message: str
     mode: str = "fast"
     speak: bool = False
+    model: str | None = None
 
 
 class SpeakRequest(BaseModel):
@@ -44,7 +54,7 @@ class SpeakRequest(BaseModel):
 
 class ToolRequest(BaseModel):
     tool_name: str
-    params: dict = {}
+    params: dict = Field(default_factory=dict)
 
 
 def now_text():
@@ -549,6 +559,19 @@ def chat(request: ChatRequest):
         }
 
     model = choose_model(request.mode)
+    # Fall back to a model that is actually installed; the user's computer
+    # should not need all four demo models just to answer a question.
+    if not request.model:
+        running, installed = _ollama_models()
+        if running and installed and model not in installed:
+            coding = [m for m in installed if "coder" in m.lower()]
+            model = (coding[0] if coding and request.mode == "coding" else installed[0])
+    if request.model:
+        # Model names are identifiers, not file paths or shell commands.
+        if (not re.fullmatch(r"[a-zA-Z0-9_.:/-]{1,100}", request.model)
+                or ".." in request.model or request.model.startswith("/")):
+            raise HTTPException(status_code=400, detail="Invalid model identifier")
+        model = request.model
     history = load_history()
 
     messages = [
@@ -590,8 +613,9 @@ def chat(request: ChatRequest):
         )
         model = "ollama-error"
 
-    add_to_history("user", user_message)
-    add_to_history("assistant", reply)
+    if model != "ollama-error":
+        add_to_history("user", user_message)
+        add_to_history("assistant", reply)
 
     if request.speak:
         speak_text_async(reply[:420])
@@ -613,3 +637,185 @@ def speak(request: SpeakRequest):
 def tool(request: ToolRequest):
     result = run_tool(request.tool_name, request.params)
     return result
+
+# ---------------------------------------------------------------------------
+# JARVIS HUD APIs. The legacy /chat and /tool endpoints are preserved.
+# ---------------------------------------------------------------------------
+
+def _ollama_models() -> tuple[bool, list[str]]:
+    try:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=1.5)
+        response.raise_for_status()
+        names = [item["name"] for item in response.json().get("models", []) if item.get("name")]
+        return True, names
+    except (requests.RequestException, ValueError, KeyError):
+        return False, []
+
+
+def _gpu_usage() -> float | None:
+    """No fake GPU percentages: report null when a compatible tool is absent."""
+    try:
+        value = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            stderr=subprocess.DEVNULL, timeout=2, text=True,
+        ).strip().splitlines()[0]
+        return float(value)
+    except (OSError, ValueError, subprocess.SubprocessError, IndexError):
+        return None
+
+
+@app.get("/api/status")
+def status():
+    ollama_online, models = _ollama_models()
+    return {
+        "backend_online": True,
+        "ollama_online": ollama_online,
+        "models_ready": len(models) > 0,
+        "model_count": len(models),
+        "memory_active": True,
+        "system_nominal": True,
+        "platform": platform.system(),
+        "time": datetime.now().isoformat(),
+    }
+
+
+@app.get("/api/system")
+def system_metrics():
+    memory = psutil.virtual_memory()
+    try:
+        disk = psutil.disk_usage(str(Path.home().anchor or "/"))
+    except OSError:
+        disk = psutil.disk_usage(str(Path.home()))
+    return {
+        "cpu": round(psutil.cpu_percent(interval=None), 1),
+        "ram": round(memory.percent, 1),
+        "gpu": _gpu_usage(),
+        "ram_used_gb": round(memory.used / (1024 ** 3), 2),
+        "ram_total_gb": round(memory.total / (1024 ** 3), 2),
+        "disk": round(disk.percent, 1),
+        "uptime_seconds": round(time.time() - psutil.boot_time()),
+        "platform": platform.system(),
+        "hostname": platform.node(),
+    }
+
+
+@app.get("/api/models")
+def models():
+    online, installed = _ollama_models()
+    return {
+        "online": online,
+        "installed": installed,
+        "defaults": {mode: choose_model(mode) for mode in ("fast", "normal", "reasoning", "coding")},
+    }
+
+
+@app.get("/api/history")
+def history_get():
+    return {"messages": load_history()}
+
+
+@app.delete("/api/history")
+def history_delete():
+    clear_history()
+    return {"status": "success", "messages": []}
+
+
+@app.get("/api/profile")
+def profile_get():
+    return load_profile()
+
+
+class ProfilePatch(BaseModel):
+    preferred_name: str | None = Field(default=None, max_length=80)
+    tone: str | None = Field(default=None, max_length=300)
+    style: str | None = Field(default=None, max_length=300)
+
+
+@app.patch("/api/profile")
+def profile_patch(data: ProfilePatch):
+    profile = load_profile()
+    for field in ("preferred_name", "tone", "style"):
+        if getattr(data, field) is not None:
+            profile[field] = getattr(data, field).strip()
+    save_profile(profile)
+    return profile
+
+
+@app.get("/api/memory")
+def memory_get():
+    # Show the complete stored memory in the UI; the model context is separately
+    # bounded by load_memory() to avoid flooding the local model.
+    return {"memory": run_tool("show_memory", {}).get("memory", "")}
+
+
+class MemoryInput(BaseModel):
+    fact: str = Field(min_length=1, max_length=2000)
+
+
+@app.post("/api/memory")
+def memory_add(data: MemoryInput):
+    return run_tool("remember_fact", {"fact": data.fact})
+
+
+@app.get("/api/notes")
+def notes_get():
+    return run_tool("list_notes", {})
+
+
+class NoteInput(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+    content: str = Field(default="", max_length=10000)
+
+
+@app.post("/api/notes")
+def notes_add(data: NoteInput):
+    return run_tool("create_note", data.model_dump())
+
+
+@app.get("/api/locations")
+def locations_get():
+    from permissions import ALLOWED_FOLDERS
+    return {"folders": [
+        {"key": key, "path": str(value), "exists": value.exists()}
+        for key, value in ALLOWED_FOLDERS.items()
+    ]}
+
+
+@app.get("/api/files")
+def files_get(folder: str = "project", limit: int = 100):
+    result = run_tool("list_files", {"folder": folder, "limit": max(1, min(limit, 200))})
+    if result.get("status") != "success":
+        raise HTTPException(status_code=403, detail=result.get("message", "Folder unavailable"))
+    return result
+
+
+@app.get("/api/files/read")
+def files_read(path: str):
+    result = run_tool("read_file", {"path": path})
+    if result.get("status") != "success":
+        raise HTTPException(status_code=403, detail=result.get("message", "Cannot read file"))
+    return result
+
+
+@app.get("/api/apps")
+def apps_get():
+    from pc_tools import SAFE_APPS, SAFE_WEBSITES
+    return {
+        "apps": sorted(set(SAFE_APPS)),
+        "websites": [{"name": name, "url": url} for name, url in SAFE_WEBSITES.items()],
+    }
+
+
+class LaunchInput(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    kind: str = "app"
+
+
+@app.post("/api/apps/launch")
+def apps_launch(data: LaunchInput):
+    from pc_tools import SAFE_APPS, SAFE_WEBSITES
+    if data.kind == "app" and data.name.lower() in SAFE_APPS:
+        return run_tool("open_app", {"app_name": data.name})
+    if data.kind == "website" and data.name.lower() in SAFE_WEBSITES:
+        return run_tool("open_website", {"site": data.name})
+    raise HTTPException(status_code=400, detail="Only configured applications and websites can be launched")

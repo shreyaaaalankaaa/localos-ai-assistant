@@ -2,50 +2,26 @@ import os
 from pathlib import Path
 
 
-BASE_USER = Path(r"C:\Users\H")
-PROJECT_ROOT = BASE_USER / "Desktop" / "jarvis-local"
+BASE_USER = Path.home()
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 ALLOWED_FOLDERS = {
     "desktop": BASE_USER / "Desktop",
     "downloads": BASE_USER / "Downloads",
     "documents": BASE_USER / "Documents",
-    "jarvis": PROJECT_ROOT,
     "project": PROJECT_ROOT,
+    "jarvis": PROJECT_ROOT,
     "backend": PROJECT_ROOT / "backend",
     "frontend": PROJECT_ROOT / "frontend",
 }
 
 ALLOWED_COMMANDS = {
-    "ollama list": {
-        "command": "ollama list",
-        "cwd": str(PROJECT_ROOT),
-        "requires_confirmation": False,
-    },
-    "dir backend": {
-        "command": "dir",
-        "cwd": str(PROJECT_ROOT / "backend"),
-        "requires_confirmation": False,
-    },
-    "dir frontend": {
-        "command": "dir",
-        "cwd": str(PROJECT_ROOT / "frontend"),
-        "requires_confirmation": False,
-    },
-    "start frontend": {
-        "command": "npm run dev",
-        "cwd": str(PROJECT_ROOT / "frontend"),
-        "requires_confirmation": True,
-    },
-    "start backend": {
-        "command": r".\venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000",
-        "cwd": str(PROJECT_ROOT / "backend"),
-        "requires_confirmation": True,
-    },
-    "npm install": {
-        "command": "npm install",
-        "cwd": str(PROJECT_ROOT / "frontend"),
-        "requires_confirmation": True,
-    },
+    "ollama list": {"command": "ollama list", "cwd": str(PROJECT_ROOT), "requires_confirmation": False},
+    "dir backend": {"command": "dir" if os.name == "nt" else "ls", "cwd": str(PROJECT_ROOT / "backend"), "requires_confirmation": False},
+    "dir frontend": {"command": "dir" if os.name == "nt" else "ls", "cwd": str(PROJECT_ROOT / "frontend"), "requires_confirmation": False},
+    "start frontend": {"command": "npm run dev", "cwd": str(PROJECT_ROOT / "frontend"), "requires_confirmation": True},
+    "start backend": {"command": "python -m uvicorn main:app --host 127.0.0.1 --port 8000", "cwd": str(PROJECT_ROOT / "backend"), "requires_confirmation": True},
+    "npm install": {"command": "npm install", "cwd": str(PROJECT_ROOT / "frontend"), "requires_confirmation": True},
 }
 
 
