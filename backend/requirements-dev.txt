@@ -1,0 +1,3 @@
+-r requirements.txt
+# The FastAPI test client needs httpx
+httpx>=0.27

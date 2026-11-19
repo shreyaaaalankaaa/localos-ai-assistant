@@ -10,16 +10,35 @@ import psutil
 import requests
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from voice import speak_text_async, stop_speech
 from tools import run_tool
 from tool_router import detect_tool_intent
+from security import PUBLIC_PATHS, TOKEN_HEADER, is_authorized, load_or_create_token
 
 
 app = FastAPI(title="Local Assistant Backend")
+
+SESSION_TOKEN = load_or_create_token()
+
+
+# Registered before CORS so CORS stays the outer layer: preflights are answered
+# by CORS, and 401 responses still carry CORS headers the frontend can read.
+@app.middleware("http")
+async def require_session_token(request: Request, call_next):
+    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+    if not is_authorized(request.headers.get(TOKEN_HEADER), SESSION_TOKEN):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Missing or invalid JARVIS session token."},
+        )
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -608,9 +627,10 @@ def chat(request: ChatRequest):
 
     except Exception as error:
         reply = (
-            "Ollama did not respond. Check that Ollama is running and the selected model is installed.\n\n"
-            f"Technical detail: {str(error)}"
+            "I can't reach the local AI model right now. Make sure Ollama is running "
+            "(`ollama serve`) and the selected model is installed (`ollama pull <model>`)."
         )
+        error_detail = str(error)
         model = "ollama-error"
 
     if model != "ollama-error":
@@ -620,11 +640,14 @@ def chat(request: ChatRequest):
     if request.speak:
         speak_text_async(reply[:420])
 
-    return {
+    result = {
         "model_used": model,
         "reply": reply,
         "latency_seconds": round(time.time() - start_time, 2),
     }
+    if model == "ollama-error":
+        result["error_detail"] = error_detail
+    return result
 
 
 @app.post("/speak")
@@ -801,7 +824,8 @@ def files_read(path: str):
 def apps_get():
     from pc_tools import SAFE_APPS, SAFE_WEBSITES
     return {
-        "apps": sorted(set(SAFE_APPS)),
+        # SAFE_APPS holds aliases ("calc" and "calculator"); show one tile per program.
+        "apps": sorted({command: name for name, command in reversed(list(SAFE_APPS.items()))}.values()),
         "websites": [{"name": name, "url": url} for name, url in SAFE_WEBSITES.items()],
     }
 

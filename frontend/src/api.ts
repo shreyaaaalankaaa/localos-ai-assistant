@@ -23,17 +23,31 @@ export type FolderResponse = { folder: string; folders: FileEntry[]; files: File
 export type ToolResult = { status: string; message?: string; [key: string]: unknown };
 export type Profile = { preferred_name?: string; tone?: string; style?: string; [key: string]: unknown };
 
+declare global {
+  interface Window { jarvis?: { token?: string } }
+}
+
+// Electron's preload provides the token; in browser dev mode the Vite dev server
+// puts it in a <meta> tag. The backend rejects any request without it.
+export function sessionToken(): string {
+  return window.jarvis?.token
+    || document.querySelector<HTMLMetaElement>('meta[name="jarvis-token"]')?.content
+    || '';
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), path === '/chat' ? 100000 : 7500);
   try {
     const response = await fetch(`${API}${path}`, {
       ...options,
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: { 'Content-Type': 'application/json', 'X-Jarvis-Token': sessionToken(), ...(options.headers || {}) },
       signal: options.signal || controller.signal,
     });
     if (!response.ok) {
-      let text = `Request failed (${response.status})`;
+      let text = response.status === 401
+        ? 'The backend rejected this session. Start the backend, then reload JARVIS.'
+        : `Request failed (${response.status})`;
       try {
         const error = await response.json();
         text = error.detail || error.message || text;

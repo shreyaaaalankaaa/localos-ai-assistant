@@ -16,8 +16,8 @@ SAFE_APPS = {
     "notepad": "notepad.exe",
     "calculator": "calc.exe",
     "calc": "calc.exe",
-    "vscode": "code",
     "vs code": "code",
+    "vscode": "code",
     "chrome": "chrome.exe",
     "edge": "msedge.exe",
 }

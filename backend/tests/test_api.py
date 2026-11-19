@@ -14,7 +14,8 @@ TEST_DATA = tempfile.TemporaryDirectory(prefix='jarvis_api_test_')
 os.environ['LOCALOS_DATA_DIR'] = TEST_DATA.name
 import main  # noqa: E402
 
-client = TestClient(main.app)
+client = TestClient(main.app, headers={'x-jarvis-token': main.SESSION_TOKEN})
+anonymous = TestClient(main.app)
 
 class ApiTests(unittest.TestCase):
     def test_status_when_ollama_unavailable(self):
@@ -68,6 +69,47 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(result.json()['model_used'],'qwen2.5-coder:7b')
         self.assertEqual(post.call_args.kwargs['json']['model'],'qwen2.5-coder:7b')
         self.assertEqual(len(client.get('/api/history').json()['messages']),2)
+
+    def test_requests_without_token_are_rejected(self):
+        self.assertEqual(anonymous.get('/api/files/read', params={'path': str(BACKEND / 'main.py')}).status_code, 401)
+        self.assertEqual(anonymous.post('/tool', json={'tool_name': 'list_notes', 'params': {}}).status_code, 401)
+        wrong = {'x-jarvis-token': 'not-the-token'}
+        self.assertEqual(anonymous.get('/api/status', headers=wrong).status_code, 401)
+
+    def test_null_origin_page_cannot_use_api_without_token(self):
+        # A sandboxed iframe on any website sends Origin: null. CORS allows that
+        # origin for the packaged app, so the token is what must stop it.
+        result = anonymous.get('/api/files', params={'folder': 'project'}, headers={'Origin': 'null'})
+        self.assertEqual(result.status_code, 401)
+
+    def test_health_check_is_public_and_preflight_passes(self):
+        self.assertEqual(anonymous.get('/').status_code, 200)
+        preflight = anonymous.options('/chat', headers={
+            'Origin': 'http://127.0.0.1:5173',
+            'Access-Control-Request-Method': 'POST',
+            'Access-Control-Request-Headers': 'content-type,x-jarvis-token',
+        })
+        self.assertEqual(preflight.status_code, 200)
+
+    def test_token_file_is_created_owner_only(self):
+        token_path = Path(TEST_DATA.name) / '.jarvis_token'
+        self.assertTrue(token_path.exists())
+        self.assertEqual(token_path.read_text().strip(), main.SESSION_TOKEN)
+        if os.name != 'nt':
+            self.assertEqual(token_path.stat().st_mode & 0o777, 0o600)
+
+    def test_app_aliases_shown_once(self):
+        apps = client.get('/api/apps').json()['apps']
+        self.assertEqual(len(apps), len(set(apps)))
+        self.assertNotIn('calc', apps)
+        self.assertIn('calculator', apps)
+
+    def test_ollama_error_is_friendly(self):
+        with patch.object(main.requests, 'post', side_effect=main.requests.ConnectionError('refused')):
+            data = client.post('/chat', json={'message': 'tell me a joke please'}).json()
+        self.assertEqual(data['model_used'], 'ollama-error')
+        self.assertNotIn('HTTPConnectionPool', data['reply'])
+        self.assertIn('refused', data['error_detail'])
 
     def test_invalid_model_rejected(self):
         response=client.post('/chat',json={'message':'hi','model':'../../../not-a-model'})

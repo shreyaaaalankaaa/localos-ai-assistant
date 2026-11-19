@@ -79,8 +79,11 @@ To run backend API contract tests:
 
 ```bash
 cd backend
+pip install -r requirements-dev.txt   # adds httpx for the FastAPI test client
 python -m unittest discover -s tests -v
 ```
+
+GitHub Actions runs these tests and the frontend build on every push (`.github/workflows/ci.yml`).
 
 ## Backend API endpoints
 
@@ -94,9 +97,23 @@ Original endpoints are preserved: `GET /startup`, `POST /chat`, `POST /tool`, `P
 - `GET /api/locations`, `GET /api/files`, `GET /api/files/read`
 - `GET /api/apps`, `POST /api/apps/launch`
 
-Swagger at `http://127.0.0.1:8000/docs`.
+Swagger at `http://127.0.0.1:8000/docs`. Every endpoint except `/` and the docs needs the `X-Jarvis-Token` header (see Security below); paste the token from `backend/data/.jarvis_token` to try calls there.
 
-Files, notes, memory and chat history are local. The file explorer is restricted by `backend/permissions.py`; reading file contents requires an explicit click. The server is intentionally bound to loopback (`127.0.0.1`). Do not expose it on a public network without adding authentication. `LOCALOS_DATA_DIR` lets you set the location of local user data; default `backend/data`, which is Git-ignored. `OLLAMA_BASE_URL` optionally points to another local Ollama endpoint.
+Files, notes, memory and chat history are local. The file explorer is restricted by `backend/permissions.py`; reading file contents requires an explicit click. The server is intentionally bound to loopback (`127.0.0.1`) and every request must carry the session token. Still, do not expose it on a public network. `LOCALOS_DATA_DIR` lets you set the location of local user data; default `backend/data`, which is Git-ignored. `OLLAMA_BASE_URL` optionally points to another local Ollama endpoint.
+
+## Security
+
+**The issue I found.** Binding to `127.0.0.1` does not keep other websites out: any page open in your browser can send requests to `localhost`. Version 1 allowed every CORS origin. Version 2 narrowed the list but still had to allow `Origin: null`, which the packaged Electron app sends from `file://`. A sandboxed iframe on *any* website also sends `Origin: null`. In testing, a page served from a different origin used that trick to read a file from `~/Documents` through `/api/files/read`, and to write a file through `/tool` (`write_file_request` followed by `confirm_action`, since the confirmation ID comes back in the response).
+
+**The fix: a per-install session token.**
+
+- On first start the backend creates a random 256-bit token in `backend/data/.jarvis_token` (owner-only permissions, Git-ignored), or uses `JARVIS_TOKEN` if set. Code: `backend/security.py`.
+- Middleware rejects every request without a matching `X-Jarvis-Token` header with **401**, compared in constant time. Only `/`, the API docs and CORS preflights are open.
+- **Electron** generates or reads the token, passes it to the backend it starts, and hands it to the page through a sandboxed preload (`frontend/electron/preload.cjs`). It only answers requests from the JARVIS frontend itself.
+- **Browser dev mode** (`npm run dev`): the Vite dev server reads the token file and puts it in a `<meta>` tag of the page it serves. Other websites cannot read that page, so they never see the token. Start the backend first, or refresh after starting it.
+- The same token also blocks DNS-rebinding attacks, because the attacker's page never learns it.
+
+Tests in `backend/tests/test_api.py` cover the missing-token, wrong-token and `Origin: null` cases.
 
 ## Packaging caveat
 
