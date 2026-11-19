@@ -4,6 +4,20 @@ A working monochrome, sci-fi desktop AI assistant built **on top of the original
 
 The assistant is local-first, not a static screenshot. The original FastAPI + Ollama chat and safe tool router are preserved, with new endpoints and functional React workspaces.
 
+## Screenshots
+
+**Home: live system telemetry and local model status**
+
+![Home: live system telemetry and local model status](docs/screenshots/jarvis-home.png)
+
+**Command center: tool router answering locally**
+
+![Command center: tool router answering locally](docs/screenshots/jarvis-chat.png)
+
+**File explorer restricted to an allowlist of folders**
+
+![File explorer restricted to an allowlist of folders](docs/screenshots/jarvis-files.png)
+
 ## Features
 
 | Screen | Working behavior |
